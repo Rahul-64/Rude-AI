@@ -1,9 +1,12 @@
 import streamlit as st
 import streamlit.components.v1 as components
+from audio_recorder_streamlit import audio_recorder
 from src.agents.agent import Agent
 from src.speech_processing.text_to_speech import TextToSpeech
+from src.speech_processing.speech_to_text_web import SpeechToText
 import os
 from dotenv import load_dotenv
+import time
 
 load_dotenv()
 
@@ -130,34 +133,48 @@ st.markdown("""
         padding: 12px 24px;
         border-radius: 20px;
         margin: 20px auto;
-        font-size: 14px;
-        font-weight: 500;
+        font-size: 16px;
+        font-weight: 600;
         max-width: 300px;
+        animation: pulse 2s ease-in-out infinite;
+    }
+    
+    @keyframes pulse {
+        0%, 100% { opacity: 1; }
+        50% { opacity: 0.7; }
     }
     
     .state-listening {
         background-color: #C8E6C9;
         color: #2E7D32;
+        box-shadow: 0 0 20px rgba(46, 125, 50, 0.4);
     }
     
     .state-processing {
         background-color: #FFECB3;
         color: #F57F17;
+        box-shadow: 0 0 20px rgba(245, 127, 23, 0.4);
     }
     
     .state-speaking {
         background-color: #BBDEFB;
         color: #1565C0;
+        box-shadow: 0 0 20px rgba(21, 101, 192, 0.4);
     }
     
-    /* Conversation display */
+    /* Hide audio recorder default UI */
+    .stAudio {
+        display: none !important;
+    }
+    
+    /* Conversation transcript */
     .conversation-container {
         background: rgba(255, 255, 255, 0.9);
         border-radius: 8px;
         padding: 20px;
         margin: 20px auto;
         max-width: 600px;
-        max-height: 300px;
+        max-height: 200px;
         overflow-y: auto;
         text-align: left;
     }
@@ -166,6 +183,7 @@ st.markdown("""
         margin: 10px 0;
         padding: 10px;
         border-radius: 6px;
+        font-size: 14px;
     }
     
     .user-message {
@@ -205,6 +223,15 @@ Keep your responses conversational and concise.
 """
     st.session_state.agent = Agent("AI Companion", model, tools=[], system_prompt=simple_prompt)
 
+if 'stt' not in st.session_state:
+    st.session_state.stt = SpeechToText()
+
+if 'tts' not in st.session_state:
+    st.session_state.tts = TextToSpeech()
+
+if 'conversation_active' not in st.session_state:
+    st.session_state.conversation_active = False
+
 # Header
 st.markdown('<div class="header-bar">Header</div>', unsafe_allow_html=True)
 
@@ -236,56 +263,112 @@ else:
     elif st.session_state.conversation_state == 'speaking':
         st.markdown('<div class="state-indicator state-speaking">🔊 Speaking...</div>', unsafe_allow_html=True)
     
-    # Main interaction - Text input for now (voice coming soon)
-    user_input = st.text_input("", placeholder="Type your message or use voice input...", label_visibility="collapsed", key="user_input")
-    
-    # Circular button
-    start_clicked = st.button("", key="start_button", help="Click or press Tab to start")
-    
-    # Custom button styling using HTML
-    st.markdown("""
-    <div class="circle-button" onclick="document.querySelector('[data-testid=\"stButton\"] button').click()">
-        <div class="button-text">tab to start<br>conversation</div>
-    </div>
-    """, unsafe_allow_html=True)
-    
-    # Handle button click or Enter key
-    if start_clicked or (user_input and user_input.strip()):
-        if user_input and user_input.strip():
-            # Add user message
-            st.session_state.conversation_history.append({
-                "role": "user",
-                "content": user_input
-            })
+    # Circular button to start/stop conversation
+    col1, col2, col3 = st.columns([1, 2, 1])
+    with col2:
+        if not st.session_state.conversation_active:
+            if st.button("", key="start_button", help="Tap to start voice conversation", use_container_width=True):
+                st.session_state.conversation_active = True
+                st.session_state.conversation_state = 'listening'
+                st.rerun()
             
-            # Set processing state
+            st.markdown("""
+            <div class="circle-button">
+                <div class="button-text">tap to start<br>conversation</div>
+            </div>
+            """, unsafe_allow_html=True)
+        else:
+            if st.button("", key="stop_button", help="Tap to stop conversation", use_container_width=True):
+                st.session_state.conversation_active = False
+                st.session_state.conversation_state = 'idle'
+                st.rerun()
+            
+            st.markdown("""
+            <div class="circle-button" style="background: linear-gradient(135deg, #EF5350 0%, #E53935 100%);">
+                <div class="button-text">tap to stop<br>conversation</div>
+            </div>
+            """, unsafe_allow_html=True)
+    
+    # Voice recording (only when conversation is active)
+    if st.session_state.conversation_active and st.session_state.conversation_state == 'listening':
+        st.markdown('<p style="text-align: center; color: #2E7D32; font-weight: 600;">🎤 Recording... Speak now!</p>', unsafe_allow_html=True)
+        
+        audio_bytes = audio_recorder(
+            text="",
+            recording_color="#2E7D32",
+            neutral_color="#9E9E9E",
+            icon_name="microphone",
+            icon_size="3x",
+            pause_threshold=2.0,
+            sample_rate=16000
+        )
+        
+        if audio_bytes:
+            # Process audio
             st.session_state.conversation_state = 'processing'
             
-            # Get AI response
-            try:
-                response = st.session_state.agent.process_request(user_input)
-                
-                # Add AI response
+            # Transcribe
+            transcript = st.session_state.stt.transcribe_audio(audio_bytes)
+            
+            if transcript:
+                # Add to history
                 st.session_state.conversation_history.append({
-                    "role": "assistant",
-                    "content": response
+                    "role": "user",
+                    "content": transcript
                 })
                 
-                # Generate audio
-                st.session_state.conversation_state = 'speaking'
-                tts = TextToSpeech()
-                audio_bytes = tts.generate_speech(response)
-                
-                if audio_bytes:
-                    st.session_state.last_audio = audio_bytes
-                
-                st.session_state.conversation_state = 'idle'
-                
-            except Exception as e:
-                st.error(f"Error: {str(e)}")
-                st.session_state.conversation_state = 'idle'
-            
-            st.rerun()
+                # Check for goodbye
+                if "goodbye" in transcript.lower() or "bye" in transcript.lower():
+                    st.session_state.conversation_history.append({
+                        "role": "assistant",
+                        "content": "Goodbye! It was nice talking to you."
+                    })
+                    
+                    # Generate goodbye speech
+                    audio_response = st.session_state.tts.generate_speech("Goodbye! It was nice talking to you.")
+                    if audio_response:
+                        st.session_state.conversation_state = 'speaking'
+                        st.audio(audio_response, format='audio/wav', autoplay=True)
+                        time.sleep(3)
+                    
+                    # End conversation
+                    st.session_state.conversation_active = False
+                    st.session_state.conversation_state = 'idle'
+                    st.rerun()
+                else:
+                    # Get AI response
+                    try:
+                        response = st.session_state.agent.process_request(transcript)
+                        
+                        # Add to history
+                        st.session_state.conversation_history.append({
+                            "role": "assistant",
+                            "content": response
+                        })
+                        
+                        # Generate speech
+                        audio_response = st.session_state.tts.generate_speech(response)
+                        
+                        if audio_response:
+                            st.session_state.conversation_state = 'speaking'
+                            st.audio(audio_response, format='audio/wav', autoplay=True)
+                            
+                            # Wait for audio to finish, then loop back to listening
+                            time.sleep(len(response) * 0.1)  # Rough estimate
+                            st.session_state.conversation_state = 'listening'
+                            st.rerun()
+                        else:
+                            st.session_state.conversation_state = 'listening'
+                            st.rerun()
+                            
+                    except Exception as e:
+                        st.error(f"Error: {str(e)}")
+                        st.session_state.conversation_state = 'listening'
+                        st.rerun()
+            else:
+                # No transcript, go back to listening
+                st.session_state.conversation_state = 'listening'
+                st.rerun()
     
     # Display conversation history
     if st.session_state.conversation_history:
@@ -296,10 +379,6 @@ else:
             else:
                 st.markdown(f'<div class="message ai-message">🤖 AI: {msg["content"]}</div>', unsafe_allow_html=True)
         st.markdown('</div>', unsafe_allow_html=True)
-        
-        # Play last audio
-        if hasattr(st.session_state, 'last_audio') and st.session_state.last_audio:
-            st.audio(st.session_state.last_audio, format='audio/wav')
     
     # Instructions box
     st.markdown("""
@@ -314,21 +393,11 @@ else:
 
 st.markdown('</div>', unsafe_allow_html=True)
 
-# Keyboard controls (Tab and Space)
+# Space key to interrupt
 components.html("""
 <script>
 document.addEventListener('keydown', function(e) {
-    // Tab key to start conversation
-    if (e.key === 'Tab') {
-        e.preventDefault();
-        const input = window.parent.document.querySelector('input[type="text"]');
-        if (input) {
-            input.focus();
-        }
-    }
-    
-    // Space key to interrupt (stop audio)
-    if (e.key === ' ' && e.target.tagName !== 'INPUT') {
+    if (e.key === ' ' && e.target.tagName !== 'INPUT' && e.target.tagName !== 'TEXTAREA') {
         e.preventDefault();
         const audio = window.parent.document.querySelector('audio');
         if (audio) {
