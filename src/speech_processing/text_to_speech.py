@@ -1,57 +1,25 @@
 import os
 from dotenv import load_dotenv
 from deepgram import DeepgramClient
-import pygame
-import time
-import threading
 
 load_dotenv()
 
-class TTS:
+class TextToSpeech:
+    """Web-compatible Text-to-Speech using Deepgram"""
+    
     def __init__(self):
-        self.filename = "output.wav"
-        self.interrupted = threading.Event()  # Interruption flag
-        
-        # Initialize pygame mixer with specific settings for Windows
-        try:
-            pygame.mixer.quit()  # Quit any existing mixer
-        except:
-            pass
-        
-        try:
-            # Initialize with specific frequency that matches Deepgram output
-            pygame.mixer.init(frequency=16000, size=-16, channels=1, buffer=512)
-            print("[TTS] Pygame mixer initialized successfully")
-        except Exception as e:
-            print(f"[TTS Warning] Pygame init issue: {e}")
+        self.api_key = os.getenv("DEEPGRAM_API_KEY")
     
-    def interrupt(self):
-        """Stop the current speech immediately"""
-        self.interrupted.set()
-        try:
-            pygame.mixer.music.stop()
-            print("[TTS] Speech interrupted!")
-        except:
-            pass
-    
-    def speak(self, text, interruption_flag=None):
+    def generate_speech(self, text):
+        """Generate speech and return audio bytes for web playback"""
         if not text or len(text.strip()) == 0:
-            print("[TTS] No text to speak")
-            return
+            return None
         
-        # Reset interruption flag
-        self.interrupted.clear()
-        
-        # Use external flag if provided, otherwise use internal
-        interrupt_check = interruption_flag if interruption_flag else self.interrupted
-            
         try:
-            print(f"[TTS] Generating speech for: {text[:50]}...")
-            
-            # STEP 1: Create a Deepgram client
-            deepgram = DeepgramClient(api_key=os.getenv("DEEPGRAM_API_KEY"))
+            # Create Deepgram client
+            deepgram = DeepgramClient(api_key=self.api_key)
 
-            # STEP 2: Generate audio
+            # Generate audio
             response = deepgram.speak.v1.audio.generate(
                 text=text,
                 model="aura-asteria-en",
@@ -59,12 +27,57 @@ class TTS:
                 sample_rate=16000
             )
 
-            # STEP 3: Save the audio to a file
-            # The response is a generator that yields audio chunks
+            # Collect audio data
             audio_data = b""
             for chunk in response:
-                # Check for interruption during generation
-                if interrupt_check.is_set():
+                audio_data += chunk
+            
+            return audio_data
+            
+        except Exception as e:
+            print(f"[TTS Error] {e}")
+            return None
+
+# Legacy class for CLI compatibility
+class TTS:
+    def __init__(self):
+        self.filename = "output.wav"
+        try:
+            import pygame
+            pygame.mixer.quit()
+        except:
+            pass
+        
+        try:
+            import pygame
+            pygame.mixer.init(frequency=16000, size=-16, channels=1, buffer=512)
+            print("[TTS] Pygame mixer initialized successfully")
+        except Exception as e:
+            print(f"[TTS Warning] Pygame init issue: {e}")
+    
+    def speak(self, text, interruption_flag=None):
+        import pygame
+        import threading
+        
+        if not text or len(text.strip()) == 0:
+            print("[TTS] No text to speak")
+            return
+        
+        try:
+            print(f"[TTS] Generating speech for: {text[:50]}...")
+            
+            deepgram = DeepgramClient(api_key=os.getenv("DEEPGRAM_API_KEY"))
+
+            response = deepgram.speak.v1.audio.generate(
+                text=text,
+                model="aura-asteria-en",
+                encoding="linear16",
+                sample_rate=16000
+            )
+
+            audio_data = b""
+            for chunk in response:
+                if interruption_flag and interruption_flag.is_set():
                     print("[TTS] Interrupted during audio generation")
                     return
                 audio_data += chunk
@@ -76,39 +89,29 @@ class TTS:
             
             print(f"[TTS] Audio saved to {self.filename}")
 
-            # STEP 4: Play the audio file using pygame
             try:
-                # Reinitialize mixer to ensure clean state
                 pygame.mixer.quit()
                 pygame.mixer.init(frequency=16000, size=-16, channels=1, buffer=512)
                 
-                # Load and play
                 pygame.mixer.music.load(self.filename)
                 pygame.mixer.music.play()
                 
-                print("[TTS] Playing audio... (Press SPACE to interrupt)")
+                print("[TTS] Playing audio...")
                 
-                # Wait for playback to finish OR interruption
                 while pygame.mixer.music.get_busy():
-                    # Check for interruption every 100ms
-                    if interrupt_check.is_set():
+                    if interruption_flag and interruption_flag.is_set():
                         pygame.mixer.music.stop()
                         print("[TTS] Playback interrupted by user!")
                         return
                     pygame.time.Clock().tick(10)
+                    import time
                     time.sleep(0.1)
                 
                 print("[TTS] Playback complete")
                 
             except Exception as play_error:
                 print(f"[TTS Error] Playback failed: {play_error}")
-                print(f"[TTS] Audio file saved as '{self.filename}' - you can play it manually")
 
         except Exception as e:
             print(f"[TTS Error] Exception: {e}")
-            import traceback
-            traceback.print_exc()
 
-if __name__ == "__main__":
-    tts = TTS()
-    tts.speak("Hello, how can I help you today?")

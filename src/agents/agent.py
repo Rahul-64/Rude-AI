@@ -1,8 +1,4 @@
-from colorama import Fore, init
 from litellm import completion
-
-# Initialize colorama for colored terminal output
-init(autoreset=True)
 
 
 class Agent:
@@ -17,7 +13,7 @@ class Agent:
             self.handle_messages_history("system", self.system_prompt)
 
     def invoke(self, message):
-        print(Fore.GREEN + f"\nCalling Agent: {self.name}")
+        print(f"\nCalling Agent: {self.name}")
         self.handle_messages_history("user", message)
         result = self.execute()
         return result
@@ -30,7 +26,7 @@ class Agent:
             try:
                 response_content = self.run_tools(tool_calls)
             except Exception as e:
-                print(Fore.RED + f"\nError: {e}\n")
+                print(f"\nError: {e}\n")
         return response_content
 
     def run_tools(self, tool_calls):
@@ -49,8 +45,8 @@ class Agent:
             return f"Error: Function {function_name} not found. Available functions: {[func.__name__ for func in self.tools]}"
 
         try:
-            print(Fore.GREEN + f"\nCalling Tool: {function_name}")
-            print(Fore.GREEN + f"Arguments: {tool_call.function.arguments}\n")
+            print(f"\nCalling Tool: {function_name}")
+            print(f"Arguments: {tool_call.function.arguments}\n")
             func = func(**eval(tool_call.function.arguments))
             output = func.run()
 
@@ -113,3 +109,10 @@ class Agent:
             }
             parsed_calls.append(parsed_call)
         return parsed_calls
+
+    def process_request(self, message):
+        """Simple method for web interface - process message and return response"""
+        self.handle_messages_history("user", message)
+        response_message = self.call_llm()
+        return response_message.content if response_message.content else "I'm sorry, I couldn't generate a response."
+
