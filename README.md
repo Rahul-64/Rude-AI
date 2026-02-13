@@ -8,17 +8,6 @@ Beautiful AI companion with voice interaction and pastel gradient interface.
 
 ---
 
-## ✨ Design Features
-
-- 🎨 **Pastel Gradient Background** - Yellow → Pink → Purple
-- ⚫ **Black Header Bar** - Minimalist top bar
-- 💜 **Semi-transparent Container** - Elegant lavender overlay
-- 🩷 **Circular Pink Button** - Tap to start conversation
-- 📝 **Instruction Box** - Clear user guidance
-- ⌨️ **Keyboard Controls** - Tab & Space shortcuts
-
----
-
 ## 🚀 Quick Deploy to Streamlit Cloud
 
 ### 1. Get FREE API Keys
